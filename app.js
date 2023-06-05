@@ -11,7 +11,11 @@ const mongoose = require("mongoose");
 
 // const encrypt = require("mongoose-encryption");
 
-const md5 = require("md5");
+// const md5 = require("md5");
+
+const bcrypt = require("bcrypt");
+
+const saltRounds = 10;
 
 const app = express();
 
@@ -47,12 +51,14 @@ app.get("/register", (req,res)=>{
 
 // when the user submits the form to register user we go to this route
 app.post("/register", async (req,res)=>{
-    const newUser = User({
-        email: req.body.username,
-        password: md5(req.body.password)
-    })
 
     try{
+        const hash = await bcrypt.hash(req.body.password, saltRounds);
+
+        const newUser = User({
+            email: req.body.username,
+            password: hash
+        })
         await newUser.save();
         res.render("secrets");
     }
@@ -68,12 +74,20 @@ app.get("/login", (req,res)=>{
 
 app.post("/login", async(req,res)=>{
     const findUsername = req.body.username;
-    const findPassword = md5(req.body.password) ;
+    const findPassword = req.body.password;
     try{
         const foundUser = await User.findOne({email: findUsername});
         if(foundUser){
-            if(foundUser.password === findPassword){
-                res.render("secrets");
+            try{
+                const result = await bcrypt.compare(findPassword, foundUser.password);
+
+                if (result === true){
+                    res.render("secrets");
+                }
+
+            }
+            catch(err){
+                console.log("Failed password");
             }
         }
     }
