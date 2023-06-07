@@ -9,13 +9,12 @@ const ejs = require("ejs");
 
 const mongoose = require("mongoose");
 
-// const encrypt = require("mongoose-encryption");
+const session = require("express-session");
 
-// const md5 = require("md5");
+const passport = require("passport");
 
-const bcrypt = require("bcrypt");
+const passportLocalMongoose = require("passport-local-mongoose");
 
-const saltRounds = 10;
 
 const app = express();
 
@@ -23,13 +22,25 @@ app.use(express.static("public"));
 app.set("view engine", "ejs");
 app.use(bodyParser.urlencoded({extended: true}));
 
+app.use(session({
+    secret: "Our little secret.",
+    resave: false,
+    saveUninitialized: false
+}))
+
+app.use(passport.initialize());
+app.use(passport.session());
+
 
 mongoose.connect("mongodb://localhost/userDB", {useNewUrlParser: true});
+
 
 const userSchema = new mongoose.Schema({
     email: String,
     password: String
 })
+
+userSchema.plugin(passportLocalMongoose);
 
 
 
@@ -38,7 +49,11 @@ const userSchema = new mongoose.Schema({
 
 const User = mongoose.model("User", userSchema);
 
-
+passport.use(User.createStrategy());
+// CREATES COOKIE   
+passport.serializeUser(User.serializeUser());
+// DISCOVER THE MESSAGE INSIDE THE COOKIE
+passport.deserializeUser(User.deserializeUser());
 
 
 app.get("/", (req,res)=>{
@@ -49,52 +64,61 @@ app.get("/register", (req,res)=>{
     res.render("register");
 })
 
-// when the user submits the form to register user we go to this route
-app.post("/register", async (req,res)=>{
-
-    try{
-        const hash = await bcrypt.hash(req.body.password, saltRounds);
-
-        const newUser = User({
-            email: req.body.username,
-            password: hash
-        })
-        await newUser.save();
+app.get("/secrets", (req,res)=>{
+    // if our cookie expires or clear it then it will take us back to
+    // login page
+    if(req.isAuthenticated()){
         res.render("secrets");
-    }
-    catch(err){
-        console.log(err);
+    } else{
+        res.redirect("/login");
     }
 })
+
+// when the user submits the form to register user we go to this route
+app.post("/register", async (req, res) => {
+    try {
+      const user = await User.register({ username: req.body.username }, req.body.password);
+      await passport.authenticate("local")(req, res, () => {
+        res.redirect("/secrets");
+      });
+    } catch (err) {
+      console.log(err);
+    }
+  });
+  
 
 
 app.get("/login", (req,res)=>{
     res.render("login");
 })
 
-app.post("/login", async(req,res)=>{
-    const findUsername = req.body.username;
-    const findPassword = req.body.password;
-    try{
-        const foundUser = await User.findOne({email: findUsername});
-        if(foundUser){
-            try{
-                const result = await bcrypt.compare(findPassword, foundUser.password);
-
-                if (result === true){
-                    res.render("secrets");
-                }
-
-            }
-            catch(err){
-                console.log("Failed password");
-            }
-        }
-    }
-    catch(err){
+app.post("/login", async (req, res) => {
+    const user = new User({
+      username: req.body.username,
+      password: req.body.password
+    });
+  
+    req.login(user, async (err) => {
+      if (err) {
         console.log(err);
-    }
-})
+        res.redirect("/login"); // Handle login failure
+      } else {
+        await passport.authenticate("local")(req, res, () => {
+          res.redirect("/secrets"); // Handle login success
+        });
+      }
+    });
+  });
+
+  app.get("/logout", (req,res)=>{
+      req.logout((err)=>{
+          if(err){
+              console.log(err);
+          }
+      })
+      res.redirect("/");
+  })
+  
 
 
 
